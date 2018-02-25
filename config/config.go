@@ -20,6 +20,7 @@ type MTAInfo struct {
 	StopCheck string `yaml:"stop_check"`
 	BeginTime int    `yaml:"begin_time"`
 	EndTime   int    `yaml:"end_time"`
+	Weekends  bool   `yaml:"weekends"`
 }
 
 type MTAResponse struct {

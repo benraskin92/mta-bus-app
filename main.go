@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"math/rand"
 	"net/http"
 	"os"
@@ -43,32 +44,35 @@ func main() {
 		panic(err)
 	}
 
+	fmt.Printf("start bound: %d (24hrs)\nend bound: %d (24hrs)\nstop check: %s\n", cfg.MTA.BeginTime, cfg.MTA.EndTime, cfg.MTA.StopCheck)
+
 	emailClient := email.NewEmailUser(cfg.Email)
 
 	reqURL := constructURL(cfg.MTA)
-	jsonResp, err := getLocation(reqURL)
-	if err != nil {
-		return
-	}
 
-	var withinTime abool.AtomicBool
-	go checkTime(withinTime, cfg.MTA.BeginTime, cfg.MTA.EndTime)
+	var withinTime = abool.New()
+	go checkTime(withinTime, cfg.MTA.BeginTime, cfg.MTA.EndTime, cfg.MTA.Weekends)
 
 	for {
 		if withinTime.IsSet() {
-			found := findClosestBus(jsonResp, cfg.MTA.StopCheck)
-			if found {
-				if err = emailClient.SendEmail(); err != nil {
-					panic(err)
-				}
+			jsonResp, err := getLocation(reqURL)
+			if err != nil {
 				return
 			}
+			found := findClosestBus(jsonResp, cfg.MTA.StopCheck)
+			if found {
+				if err = emailClient.SendEmail(cfg.MTA); err != nil {
+					panic(err)
+				}
+				// Ensure that you don't keep getting emails
+				time.Sleep(60 * time.Second)
+			}
 		}
-		time.Sleep(2 * time.Second)
+		time.Sleep(5 * time.Second)
 	}
 }
 
-func checkTime(withinTime abool.AtomicBool, begin, end int) {
+func checkTime(withinTime *abool.AtomicBool, begin, end int, weekends bool) {
 	loc, err := time.LoadLocation("America/New_York")
 	if err != nil {
 		return
@@ -81,11 +85,19 @@ func checkTime(withinTime abool.AtomicBool, begin, end int) {
 			now := time.Now().In(loc)
 			startBound := time.Date(now.Year(), now.Month(), now.Day(), begin, 0, 0, 0, now.Location())
 			endBound := time.Date(now.Year(), now.Month(), now.Day(), end, 0, 0, 0, now.Location())
-
-			if now.After(startBound) && now.Before(endBound) && now.Weekday() != 6 && now.Weekday() != 7 {
-				withinTime.SetTo(true)
+			withinBound := now.After(startBound) && now.Before(endBound)
+			if !weekends {
+				if withinBound && now.Weekday() != 6 && now.Weekday() != 7 {
+					withinTime.SetTo(true)
+				} else {
+					withinTime.UnSet()
+				}
 			} else {
-				withinTime.UnSet()
+				if withinBound {
+					withinTime.SetTo(true)
+				} else {
+					withinTime.UnSet()
+				}
 			}
 		}
 	}
@@ -105,6 +117,7 @@ func constructURL(mta config.MTAInfo) string {
 func getLocation(url string) (*config.MTAResponse, error) {
 	resp, err := http.Get(url)
 	if err != nil {
+		log.Printf("unable to request bus info, got error: %v", err)
 		return nil, err
 	}
 
@@ -118,7 +131,7 @@ func getLocation(url string) (*config.MTAResponse, error) {
 func findClosestBus(resp *config.MTAResponse, check string) bool {
 	for _, v := range resp.Siri.ServiceDelivery.VehicleMonitoringDelivery {
 		for _, ind := range v.VehicleActivity {
-			fmt.Println(ind.MonitoredVehicleJourney.MonitoredCall.StopPointName)
+			// fmt.Println(ind.MonitoredVehicleJourney.MonitoredCall.StopPointName)
 			if ind.MonitoredVehicleJourney.MonitoredCall.StopPointName == check {
 				return true
 			}

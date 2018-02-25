@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"html/template"
+	"log"
 	"mta_app/config"
 	"net/smtp"
 )
@@ -26,10 +27,10 @@ func NewEmailUser(opts config.EmailUser) emailUser {
 	}
 }
 
-func (user emailUser) SendEmail() error {
+func (user emailUser) SendEmail(mtaInfo config.MTAInfo) error {
 	auth := smtp.PlainAuth("", user.Username, user.Password, user.EmailServer)
 
-	email, err := user.createEmail()
+	email, err := user.createEmail(mtaInfo)
 	if err != nil {
 		return err
 	}
@@ -37,6 +38,7 @@ func (user emailUser) SendEmail() error {
 	if err := smtp.SendMail("smtp.gmail.com:587", auth, "benraskin92@gmail.com", user.SendTo, email); err != nil {
 		return err
 	}
+	log.Printf("sending email to %s", user.SendTo)
 
 	return nil
 }
@@ -53,19 +55,17 @@ Subject: {{.Subject}}
 
 {{.Body}}
 
-Sincerely,
-
 {{.From}}
 `
 
-func (user emailUser) createEmail() ([]byte, error) {
+func (user emailUser) createEmail(mtaInfo config.MTAInfo) ([]byte, error) {
 	var doc bytes.Buffer
 	var email []byte
 
 	context := &SmtpTemplateData{
 		From:    "Ben",
 		Subject: "Bus is 2 stops away!",
-		Body:    "M11 is currently at W 14 ST/WASHINGTON ST",
+		Body:    fmt.Sprintf("M11 is currently at %s", mtaInfo.StopCheck),
 	}
 
 	t := template.New("emailTemplate")
